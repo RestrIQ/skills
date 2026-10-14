@@ -1,0 +1,22 @@
+{
+  "name": "restriq",
+  "description": "Integrate RestrIQ shipping-restriction checks into eCommerce, POS, and ERP systems: token exchange, the /check call, response handling, and error codes.",
+  "author": {
+    "name": "RestrIQ",
+    "url": "https://www.restriq.com"
+  },
+  "homepage": "https://www.restriq.com",
+  "repository": "https://github.com/restriq/skills",
+  "license": "SEE LICENSE IN LICENSE",
+  "keywords": [
+    "restriq",
+    "shipping-restrictions",
+    "compliance",
+    "ecommerce",
+    "pos",
+    "erp",
+    "firearms",
+    "knives"
+  ],
+  "version": "0.1.0"
+}

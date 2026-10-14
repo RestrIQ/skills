@@ -1,0 +1,634 @@
+{
+  "components": {
+    "schemas": {
+      "CatalogItem": {
+        "description": "A shallow catalog record for a product of any type. All product data travels in the free-form attributes map (e.g. name, brand, model, category, caliber, blade_length). An item with no attributes is invalid. Conventional keys brand/name/model/description are used when composing the catalog description.",
+        "properties": {
+          "attributes": {
+            "additionalProperties": {
+              "maxLength": 500,
+              "type": "string"
+            },
+            "description": "Product attributes (keys up to 64 chars, values up to 500)",
+            "example": {
+              "brand": "Ruger",
+              "caliber": ".22 LR",
+              "model": "40160",
+              "name": "Mark IV Hunter"
+            },
+            "maxProperties": 20,
+            "type": "object"
+          },
+          "upc": {
+            "description": "Same three GTIN lengths as upcs, matched against upcs on the normalized UPC-A. A new catalog entry additionally requires a valid GS1 check digit; a code that fails it, or that has no UPC-A form, comes back as item: \"invalid\" rather than failing the request.",
+            "example": "736676401871",
+            "pattern": "^[0-9]{12,14}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upc",
+          "attributes"
+        ],
+        "type": "object"
+      },
+      "CheckRequest": {
+        "properties": {
+          "destination": {
+            "description": "Exactly one of zip or state (the object-level example is zip-only on purpose — sending both is rejected)",
+            "example": {
+              "zip": "90210"
+            },
+            "properties": {
+              "state": {
+                "example": "CA",
+                "pattern": "^[A-Z]{2}$",
+                "type": "string"
+              },
+              "zip": {
+                "example": "90210",
+                "pattern": "^[0-9]{5}$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "effective_date": {
+            "description": "Date for evaluating time-sensitive rules (YYYY-MM-DD). Defaults to today if not specified.",
+            "example": "2024-01-15",
+            "format": "date",
+            "type": "string"
+          },
+          "items": {
+            "description": "Optional catalog items for UPCs in this request; requires JWT bearer authentication. When a checked UPC is unknown, its item is accepted into the catalog pipeline and typically appears in restriction data within 24 hours. Each item's upc must also be present in upcs. Null example on purpose: try-it-out submissions would feed real items into the catalog pipeline.",
+            "example": null,
+            "items": {
+              "$ref": "#/components/schemas/CatalogItem"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "recipient_type": {
+            "default": "individual",
+            "description": "Type of recipient. Some restrictions are waived for FFL dealers, law enforcement, or military. Defaults to individual if omitted.",
+            "enum": [
+              "individual",
+              "ffl",
+              "law_enforcement",
+              "military"
+            ],
+            "type": "string"
+          },
+          "reference": {
+            "example": "ORDER-123",
+            "type": "string"
+          },
+          "site": {
+            "description": "Canonical base URL of the calling storefront (e.g. https://shop.example.com). Observational only: logged for support and diagnostics, never validated, never affects the check result, and never interacts with the key's pinned site. Site enforcement happens at the token endpoint.",
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "unknown_upc_shippable": {
+            "default": false,
+            "description": "When true, UPCs not in the database are treated as shippable",
+            "type": "boolean"
+          },
+          "upcs": {
+            "description": "GTINs to check, digits only, with no separators: a 12-digit UPC-A, or a 13- or 14-digit GTIN. A GTIN is reduced to its UPC-A by stripping zero padding (13 beginning \"0\", 14 beginning \"00\"); a code with no UPC-A form — an EAN-13 with a real leading digit, or a GTIN-14 naming a case rather than the item — is answered not_found. The check digit is not validated. Each result echoes the code exactly as sent.",
+            "example": [
+              "123456789012"
+            ],
+            "items": {
+              "pattern": "^[0-9]{12,14}$",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "destination",
+          "upcs"
+        ],
+        "type": "object"
+      },
+      "CheckResponse": {
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/UPCResult"
+            },
+            "type": "array"
+          },
+          "shippable": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "code": {
+            "description": "Machine-readable error code, e.g. invalid_request, invalid_destination, invalid_upc, unauthorized, invalid_site, invalid_credentials, key_revoked, api_key_expired",
+            "example": "invalid_request",
+            "type": "string"
+          },
+          "details": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Modification": {
+        "description": "A suggested modification for compliance",
+        "properties": {
+          "note": {
+            "description": "Human-readable description of the modification",
+            "type": "string"
+          },
+          "required": {
+            "description": "Whether this modification is required for compliance",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "Modification type (e.g., mag_capacity_reduce, feature_remove)",
+            "example": "mag_capacity_reduce",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ProblemDetails": {
+        "description": "RFC 9457 problem details, returned with Content-Type application/problem+json.",
+        "properties": {
+          "code": {
+            "description": "Extension member: machine-readable code, branch on this like ErrorResponse.code",
+            "example": "site_mismatch",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "status": {
+            "example": 403,
+            "type": "integer"
+          },
+          "title": {
+            "example": "API key is bound to a different site",
+            "type": "string"
+          },
+          "type": {
+            "example": "https://restriq.dev/problems/site-mismatch",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "TokenRequest": {
+        "description": "Optional body for the token exchange. Both properties may be omitted by older callers.",
+        "properties": {
+          "site": {
+            "description": "Canonical base URL of the calling storefront (absolute http/https URL, e.g. https://shop.example.com). The first non-empty site pins this API key; later exchanges from a different site authority are rejected with 403 site_mismatch. Connectors must send it. The example is null on purpose: sending a placeholder site from try-it-out would pin your key to it.",
+            "example": null,
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "telemetry": {
+            "additionalProperties": true,
+            "description": "Free-form environment report stored for support and compatibility triage (e.g. {\"magento_version\": \"2.4.7\", \"php_version\": \"8.3.10\", \"connector_version\": \"1.0.0\"}). Never affects issuance. Null example on purpose: try-it-out submissions would overwrite the key's real telemetry record.",
+            "example": null,
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "TokenResponse": {
+        "properties": {
+          "expires_in": {
+            "description": "Seconds until the token expires",
+            "example": 86400,
+            "type": "integer"
+          },
+          "token": {
+            "description": "Signed JWT for the Check API. The aud claim carries the Check API base URL.",
+            "type": "string"
+          },
+          "token_type": {
+            "example": "Bearer",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UPCResult": {
+        "properties": {
+          "item": {
+            "description": "Present when a catalog item was supplied for this UPC. accepted: item accepted into the catalog pipeline (asynchronous; not confirmed delivery). known: UPC already cataloged, item ignored — a cataloged UPC stays known whatever its check digit. invalid: the item failed content validation, or its UPC has no UPC-A form or a bad GS1 check digit; it was dropped.",
+            "enum": [
+              "accepted",
+              "known",
+              "invalid"
+            ],
+            "type": "string"
+          },
+          "modifications": {
+            "description": "Suggested modifications to make a blocked item compliant",
+            "items": {
+              "$ref": "#/components/schemas/Modification"
+            },
+            "type": "array"
+          },
+          "reasons": {
+            "description": "Dynamic reason codes from source data (e.g., not_found, blocked, hazmat, state_law_2024)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "shippable": {
+            "type": "boolean"
+          },
+          "upc": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "apiKeyBasic": {
+        "description": "API key credentials for the token exchange: Key ID as username, Secret as password (from the console API Keys page). Exchange them at POST /api/token for a bearer JWT.",
+        "scheme": "basic",
+        "type": "http"
+      },
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "description": "JWT Bearer token for the Check API. Mint one at POST /api/token on the admin console, or via the console API Keys page.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Check if UPCs can be shipped to US destinations.\n\n**Two hosts serve this API.** The top-level server below is the **Check API** (restriction checks). Operations tagged **Authentication** and **Catalog Items** are served by the **Admin Console** — `https://console.restriq.net` — and carry their own server entry.\n\n**Getting started:** exchange your API key (Key ID + Secret, from the console's API Keys page) for a JWT at the console's POST /api/token, then call POST /check on the Check API with an Authorization: Bearer header.",
+    "title": "RestrIQ API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/api/items": {
+      "post": {
+        "description": "Submit catalog items without running a check. Served by the admin console host, not the Check API. Requires the same JWT bearer token used for /check; UPC prefix restrictions in the token are enforced. Accepted items enter the catalog pipeline and typically appear in restriction data within 24 hours.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "items": {
+                    "items": {
+                      "$ref": "#/components/schemas/CatalogItem"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "items"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "results": {
+                      "items": {
+                        "properties": {
+                          "item": {
+                            "enum": [
+                              "accepted",
+                              "known",
+                              "invalid"
+                            ],
+                            "type": "string"
+                          },
+                          "upc": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-item results"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized - Invalid or missing credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UPC not within the token's authorized prefixes"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Submit catalog items directly",
+        "tags": [
+          "Catalog Items"
+        ]
+      },
+      "servers": [
+        {
+          "description": "Admin console",
+          "url": "https://console.restriq.net"
+        }
+      ]
+    },
+    "/api/token": {
+      "post": {
+        "description": "Authenticate with HTTP Basic — Key ID as username, Secret as password — to receive a signed JWT for the Check API. The Check API base URL is carried in the token's aud claim.\n\n**Site binding:** the first exchange that reports a non-empty site pins this API key to that site's authority (scheme + host + non-default port). Later exchanges presenting a different authority are rejected with 403 problem details (code site_mismatch) — one key serves one storefront. Omitting site is currently allowed for older callers.\n\n**Telemetry:** an optional free-form environment report stored for support and compatibility triage; it never affects issuance.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Signed JWT for the Check API"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request body (code invalid_request) or invalid site URL (code invalid_site)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid credentials (code invalid_credentials) or revoked key (code key_revoked)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Expired API key (application/json, code api_key_expired) or site mismatch — the key is pinned to a different storefront (application/problem+json, code site_mismatch)"
+          }
+        },
+        "security": [
+          {
+            "apiKeyBasic": []
+          }
+        ],
+        "summary": "Exchange API key credentials for a bearer JWT",
+        "tags": [
+          "Authentication"
+        ]
+      },
+      "servers": [
+        {
+          "description": "Admin console",
+          "url": "https://console.restriq.net"
+        }
+      ]
+    },
+    "/check": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "1-tx-allowed": {
+                  "description": "Texas has no assault-weapon ban or magazine limits. Expect every UPC shippable.",
+                  "summary": "TX — all allowed",
+                  "value": {
+                    "destination": {
+                      "zip": "75001"
+                    },
+                    "upcs": [
+                      "111111111111",
+                      "333333333333",
+                      "222222222222"
+                    ]
+                  }
+                },
+                "2-ny-blocked": {
+                  "description": "New York SAFE Act restrictions. Expect the high-capacity magazine blocked (Magazine capacity >10; §265.36) and overall shippable: false.",
+                  "summary": "NY — blocked by SAFE Act",
+                  "value": {
+                    "destination": {
+                      "zip": "10001"
+                    },
+                    "upcs": [
+                      "333333333333",
+                      "222222222222",
+                      "200000000006",
+                      "111111111111"
+                    ]
+                  }
+                },
+                "3-ca-mixed": {
+                  "description": "California magazine ban, handgun roster, and suppressor laws. Expect 3 UPCs blocked (magazine, roster, suppressor), 1 allowed.",
+                  "summary": "CA — mixed results",
+                  "value": {
+                    "destination": {
+                      "zip": "90210"
+                    },
+                    "upcs": [
+                      "222222222222",
+                      "200000000005",
+                      "200000000008",
+                      "111111111111"
+                    ]
+                  }
+                },
+                "4-unknown-upcs": {
+                  "description": "UPCs not in the catalog normally return not_found; with unknown_upc_shippable: true they are treated as shippable. Expect all shippable.",
+                  "summary": "Unknown UPCs — opt in as shippable",
+                  "value": {
+                    "destination": {
+                      "zip": "75001"
+                    },
+                    "unknown_upc_shippable": true,
+                    "upcs": [
+                      "000000000001",
+                      "999999999999",
+                      "111111111111"
+                    ]
+                  }
+                },
+                "5-duncan-gap": {
+                  "description": "Time-sensitive rules: the CA magazine ban was enjoined around 2020-04-01 (Duncan v. Becerra), so this magazine is shippable on that date but blocked today.",
+                  "summary": "CA magazine ban gap (effective_date)",
+                  "value": {
+                    "destination": {
+                      "zip": "90210"
+                    },
+                    "effective_date": "2020-04-01",
+                    "upcs": [
+                      "222222222222"
+                    ]
+                  }
+                },
+                "6-knives": {
+                  "description": "Knife restrictions vary by type. Expect 3 blocked in CA, 1 allowed (butterfly knife is legal).",
+                  "summary": "CA knives — mixed results",
+                  "value": {
+                    "destination": {
+                      "zip": "90210"
+                    },
+                    "upcs": [
+                      "400000000001",
+                      "400000000002",
+                      "400000000003",
+                      "400000000004"
+                    ]
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/CheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckResponse"
+                }
+              }
+            },
+            "description": "Restriction check result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized - Invalid or missing credentials"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Check shipping restrictions",
+        "tags": [
+          "Shipping Restrictions"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "description": "Check API",
+      "url": "https://api.restriq.net"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Exchange API key credentials for a bearer JWT — served by the Admin Console host",
+      "name": "Authentication"
+    },
+    {
+      "description": "Check shipping restrictions for UPCs — served by the Check API host",
+      "name": "Shipping Restrictions"
+    },
+    {
+      "description": "Submit catalog items for unknown UPCs — served by the Admin Console host",
+      "name": "Catalog Items"
+    }
+  ]
+}

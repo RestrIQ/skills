@@ -1,0 +1,8 @@
+{
+  "name": "restriq",
+  "owner": { "name": "RestrIQ", "url": "https://www.restriq.com" },
+  "description": "RestrIQ integration skill for coding agents.",
+  "plugins": [
+    { "name": "restriq", "source": "./", "description": "Integrate RestrIQ shipping-restriction checks into eCommerce, POS, and ERP systems.", "category": "development", "tags": ["restriq", "compliance", "ecommerce"] }
+  ]
+}
